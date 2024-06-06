@@ -1,4 +1,5 @@
 """Provides task functionality."""
+
 # Standard
 from multiprocessing import Value
 from time import sleep, time
@@ -31,6 +32,7 @@ def async_task(func, *args, **kwargs):
         "iter_cached",
         "chain",
         "broker",
+        "cluster",
         "timeout",
     )
     q_options = keywords.pop("q_options", {})
@@ -52,7 +54,7 @@ def async_task(func, *args, **kwargs):
         elif key in keywords:
             task[key] = keywords.pop(key)
     # don't serialize the broker
-    broker = task.pop("broker", get_broker())
+    broker = task.pop("broker", None) or get_broker(task.get("cluster"))
     # overrides
     if "cached" not in task and Conf.CACHED:
         task["cached"] = Conf.CACHED
@@ -71,7 +73,7 @@ def async_task(func, *args, **kwargs):
         return _sync(pack)
     # push it
     enqueue_id = broker.enqueue(pack)
-    logger.info(f"Enqueued {enqueue_id}")
+    logger.info(f"Enqueued [{broker.list_key}] {enqueue_id}")
     logger.debug(f"Pushed {tag}")
     return task["id"]
 
@@ -90,6 +92,7 @@ def schedule(func, *args, **kwargs):
     :type next_run: datetime.datetime
     :param cluster: optional cluster name.
     :param cron: optional cron expression
+    :param intended_date_kwarg: optional identifier to pass intended schedule date.
     :param kwargs: function keyword arguments.
     :return: the schedule object.
     :rtype: Schedule
@@ -102,6 +105,7 @@ def schedule(func, *args, **kwargs):
     next_run = kwargs.pop("next_run", timezone.now())
     cron = kwargs.pop("cron", None)
     cluster = kwargs.pop("cluster", None)
+    intended_date_kwarg = kwargs.pop("intended_date_kwarg", None)
 
     # check for name duplicates instead of am unique constraint
     if name and Schedule.objects.filter(name=name).exists():
@@ -120,6 +124,7 @@ def schedule(func, *args, **kwargs):
         next_run=next_run,
         cron=cron,
         cluster=cluster,
+        intended_date_kwarg=intended_date_kwarg,
     )
     # make sure we trigger validation
     s.full_clean()
@@ -144,7 +149,7 @@ def result(task_id, wait=0, cached=Conf.CACHED):
     start = time()
     while True:
         r = Task.get_result(task_id)
-        if r:
+        if r is not None:
             return r
         if (time() - start) * 1000 >= wait >= 0:
             break
@@ -270,6 +275,7 @@ def fetch_cached(task_id, wait=0, broker=None):
                 hook=task.get("hook"),
                 args=task["args"],
                 kwargs=task["kwargs"],
+                cluster=task.get("cluster"),
                 started=task["started"],
                 stopped=task["stopped"],
                 result=task["result"],
@@ -340,6 +346,7 @@ def fetch_group_cached(group_id, failures=True, wait=0, count=None, broker=None)
                         hook=task.get("hook"),
                         args=task["args"],
                         kwargs=task["kwargs"],
+                        cluster=task.get("cluster"),
                         started=task["started"],
                         stopped=task["stopped"],
                         result=task["result"],
@@ -563,10 +570,12 @@ class Chain:
     A sequential chain of tasks
     """
 
-    def __init__(self, chain=None, group=None, cached=Conf.CACHED, sync=Conf.SYNC):
+    def __init__(
+        self, chain=None, group=None, cached=Conf.CACHED, sync=Conf.SYNC, broker=None
+    ):
         self.chain = chain or []
         self.group = group or ""
-        self.broker = get_broker()
+        self.broker = broker or get_broker()
         self.cached = cached
         self.sync = sync
         self.started = False
@@ -600,7 +609,8 @@ class Chain:
 
     def result(self, wait=0):
         """
-        return the full list of results from the chain when it finishes. blocks until timeout.
+        return the full list of results from the chain when it finishes. blocks until
+        timeout.
         :param int wait: how many milliseconds to wait for a result
         :return: an unsorted list of results
         """
@@ -611,7 +621,8 @@ class Chain:
 
     def fetch(self, failures=True, wait=0):
         """
-        get the task result objects from the chain when it finishes. blocks until timeout.
+        get the task result objects from the chain when it finishes. blocks until
+        timeout.
         :param failures: include failed tasks
         :param int wait: how many milliseconds to wait for a result
         :return: an unsorted list of task objects
@@ -721,17 +732,14 @@ class AsyncTask:
         return self.id
 
     def result(self, wait=0):
-
         if self.started:
             return result(self.id, wait=wait, cached=self.cached)
 
     def fetch(self, wait=0):
-
         if self.started:
             return fetch(self.id, wait=wait, cached=self.cached)
 
     def result_group(self, failures=False, wait=0, count=None):
-
         if self.started and self.group:
             return result_group(
                 self.group,
@@ -742,7 +750,6 @@ class AsyncTask:
             )
 
     def fetch_group(self, failures=True, wait=0, count=None):
-
         if self.started and self.group:
             return fetch_group(
                 self.group,
@@ -755,7 +762,8 @@ class AsyncTask:
 
 def _sync(pack):
     """Simulate a package travelling through the cluster."""
-    from django_q.cluster import monitor, worker
+    from django_q.monitor import monitor
+    from django_q.worker import worker
 
     task_queue = Queue()
     result_queue = Queue()
