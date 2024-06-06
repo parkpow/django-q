@@ -19,7 +19,7 @@ except core.exceptions.AppRegistryNotReady:
 from django_q.conf import Conf, error_reporter, logger, resource, setproctitle
 from django_q.signals import post_spawn, pre_execute
 from django_q.utils import close_old_django_connections, get_func_repr
-
+from django_q.brokers import get_broker
 try:
     import psutil
 except ImportError:
@@ -29,6 +29,29 @@ try:
     import setproctitle
 except ModuleNotFoundError:
     setproctitle = None
+
+
+def _check_task_timed_out(key, task: dict):
+    result = None
+    broker = get_broker()
+    cache = broker.cache
+    working_set = cache.get(key) or set()
+    if task["id"] in working_set:
+        # the previous worker has timedout and wasn't given chance to clear
+        raise Exception(f"Task Timed-out: {task}.")
+    else:
+        working_set.add(task['id'])
+        cache.set(key, working_set, timeout=Conf.RETRY * 3)
+    return result
+
+
+def _clear_task_timeout_cache(key, task):
+    broker = get_broker()
+    cache = broker.cache
+    working_set = cache.get(key) or set()
+    if task["id"] in working_set:
+        working_set.remove(task['id'])
+        cache.set(key, working_set, timeout=Conf.RETRY * 3)
 
 
 def worker(
@@ -53,6 +76,8 @@ def worker(
     task_count = 0
     if timeout is None:
         timeout = -1
+
+    working_tasks_key = "DJANGO-Q-WORKING-TASKS"
     # Start reading the task queue
     for task in iter(task_queue.get, "STOP"):
         result = None
@@ -94,6 +119,9 @@ def worker(
             if f is None:
                 # raise a meaningfull error if task["func"] is not a valid function
                 raise ValueError(f"Function {task['func']} is not defined")
+            if Conf.FAIL_ON_TIMEOUT:
+                _check_task_timed_out(working_tasks_key, task)
+
             res = f(*task["args"], **task["kwargs"])
             result = (res, True)
         except Exception as e:
@@ -102,6 +130,10 @@ def worker(
                 error_reporter.report()
             if task.get("sync", False):
                 raise
+
+        if Conf.FAIL_ON_TIMEOUT:
+            _clear_task_timeout_cache(working_tasks_key, task)
+
         with timer.get_lock():
             # Process result
             task["result"] = result[0]
