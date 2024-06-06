@@ -1,13 +1,12 @@
 from datetime import timedelta
 from time import sleep
 
-from django import db
-from django.db import transaction
+from django.db import transaction, connections
 from django.utils import timezone
 
 from django_q.brokers import Broker
 from django_q.conf import Conf, logger
-from django_q.models import OrmQ
+from django_q.models import OrmQ, Schedule
 
 
 def _timeout():
@@ -23,7 +22,8 @@ class ORM(Broker):
             # Make sure stale connections in the broker thread are explicitly
             #   closed before attempting DB access.
             # logger.debug("Broker thread calling close_old_connections")
-            db.close_old_connections()
+            connection = connections[Conf.ORM]
+            connection.close_if_unusable_or_obsolete()
         else:
             logger.debug("Broker in an atomic transaction")
         return OrmQ.objects.using(Conf.ORM)
