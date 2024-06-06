@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from django_q.brokers import Broker
 from django_q.conf import Conf, logger
-from django_q.models import OrmQ, Schedule
+from django_q.models import OrmQ
 
 
 def _timeout():
