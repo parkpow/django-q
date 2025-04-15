@@ -153,7 +153,7 @@ def save_task(task, broker: Broker):
 
 
 def save_cached(task, broker: Broker):
-    task_key = f'{broker.list_key}:{task["id"]}'
+    task_key = f"{broker.list_key}:{task['id']}"
     timeout = task["cached"]
     if timeout is True:
         timeout = None

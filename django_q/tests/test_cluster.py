@@ -436,6 +436,7 @@ def test_recycle(broker, monkeypatch):
     assert Success.objects.count() == Conf.SAVE_LIMIT
     broker.delete_queue()
 
+
 @pytest.mark.django_db
 def test_save_limit_per_func(broker, monkeypatch):
     # set up the Sentinel
@@ -469,13 +470,12 @@ def test_save_limit_per_func(broker, monkeypatch):
     # run monitor
     monitor(result_queue)
     assert Success.objects.count() == 3
-    assert set(Success.objects.filter().values_list('func', flat=True)) == {
-        'django_q.tests.tasks.countdown',
-        'django_q.tests.tasks.hello',
-        'django_q.tests.tasks.multiply',
+    assert set(Success.objects.filter().values_list("func", flat=True)) == {
+        "django_q.tests.tasks.countdown",
+        "django_q.tests.tasks.hello",
+        "django_q.tests.tasks.multiply",
     }
     broker.delete_queue()
-
 
 
 @pytest.mark.django_db

@@ -67,7 +67,7 @@ class ORM(Broker):
         try:
             return self._enqueue_attempt(task)
         except OperationalError as e:
-            if 'disk I/O error' in str(e):
+            if "disk I/O error" in str(e):
                 # Retry Failed enqueue due to sqlite 'disk I/O error'
                 sleep(Conf.POLL)
                 return self._enqueue_attempt(task)
