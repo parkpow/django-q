@@ -2,8 +2,8 @@ from datetime import timedelta
 from time import sleep
 
 from django.db import connections, transaction
-from django.utils import timezone
 from django.db.utils import OperationalError
+from django.utils import timezone
 
 from django_q.brokers import Broker
 from django_q.conf import Conf, logger
