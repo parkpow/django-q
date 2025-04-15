@@ -16,10 +16,10 @@ except core.exceptions.AppRegistryNotReady:
 
     django.setup()
 
+from django_q.brokers import get_broker
 from django_q.conf import Conf, error_reporter, logger, resource, setproctitle
 from django_q.signals import post_spawn, pre_execute
 from django_q.utils import close_old_django_connections, get_func_repr
-from django_q.brokers import get_broker
 
 try:
     import psutil
