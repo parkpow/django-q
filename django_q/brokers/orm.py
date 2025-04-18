@@ -1,7 +1,8 @@
 from datetime import timedelta
 from time import sleep
 
-from django.db import transaction, connections
+from django.db import connections, transaction
+from django.db.utils import OperationalError
 from django.utils import timezone
 
 from django_q.brokers import Broker
@@ -56,12 +57,22 @@ class ORM(Broker):
     def fail(self, task_id):
         self.delete(task_id)
 
-    def enqueue(self, task):
+    def _enqueue_attempt(self, task):
         # list_key might be null (e.g. in a test setup) but OrmQ.key has not-null constraint
         package = self.get_connection().create(
             key=self.list_key or Conf.CLUSTER_NAME, payload=task, lock=timezone.now()
         )
         return package.pk
+
+    def enqueue(self, task):
+        try:
+            return self._enqueue_attempt(task)
+        except OperationalError as e:
+            if "disk I/O error" in str(e):
+                # Retry Failed enqueue due to sqlite 'disk I/O error'
+                sleep(Conf.POLL)
+                return self._enqueue_attempt(task)
+            raise
 
     def dequeue(self):
         tasks = self.get_connection().filter(

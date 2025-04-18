@@ -16,10 +16,11 @@ except core.exceptions.AppRegistryNotReady:
 
     django.setup()
 
+from django_q.brokers import get_broker
 from django_q.conf import Conf, error_reporter, logger, resource, setproctitle
 from django_q.signals import post_spawn, pre_execute
 from django_q.utils import close_old_django_connections, get_func_repr
-from django_q.brokers import get_broker
+
 try:
     import psutil
 except ImportError:
@@ -40,7 +41,7 @@ def _check_task_timed_out(key, task: dict):
         # the previous worker has timedout and wasn't given chance to clear
         raise Exception(f"Task Timed-out: {task}.")
     else:
-        working_set.add(task['id'])
+        working_set.add(task["id"])
         cache.set(key, working_set, timeout=Conf.RETRY * 3)
     return result
 
@@ -50,7 +51,7 @@ def _clear_task_timeout_cache(key, task):
     cache = broker.cache
     working_set = cache.get(key) or set()
     if task["id"] in working_set:
-        working_set.remove(task['id'])
+        working_set.remove(task["id"])
         cache.set(key, working_set, timeout=Conf.RETRY * 3)
 
 
